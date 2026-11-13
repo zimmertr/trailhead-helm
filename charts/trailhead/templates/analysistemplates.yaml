@@ -1,0 +1,54 @@
+{{- /* The scripted checks a canary must pass before promotion (decision
+       record 0002), adapted from bluebird's version-check and api-test in
+       Kubernetes-Manifests. Rendered here and named for the release, so each
+       PR preview in a shared namespace checks its own canary. The Rollouts
+       controller runs them from outside the mesh, so each check path is let
+       through the AuthorizationPolicies (authorizationpolicy.yaml). */}}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "trailhead.fullname" . }}-version-check
+  {{- include "trailhead.metadata" (dict "root" . "component" "analysis") | nindent 2 }}
+spec:
+  args:
+    - name: image
+    - name: url
+  metrics:
+    - name: version-check
+      initialDelay: {{ .Values.canary.versionCheckInitialDelay }}
+      count: 1
+      failureLimit: 0
+      # The image reads name:tag, or name:tag@digest once kustomize pins the
+      # digest, so the version must sit after the last colon of the tag: at
+      # the end, or right before the @. Both ends, so 0.1.2 doesn't match
+      # 0.1.23.
+      successCondition: {{ `'"{{args.image}}" endsWith (":" + result) || "{{args.image}}" contains (":" + result + "@")'` }}
+      provider:
+        web:
+          url: {{ `"{{args.url}}"` }}
+          jsonPath: "{$.version}"
+          timeoutSeconds: {{ .Values.canary.timeoutSeconds }}
+{{- range $component := list "web" "api" "admin" }}
+{{- $ctx := dict "root" $ "component" $component }}
+{{- $v := index $.Values $component }}
+{{- $name := include "trailhead.componentName" $ctx }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $name }}-smoke-test
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  metrics:
+    {{- range $v.analysis.smokeTest }}
+    # A non-2xx answer is an error, and five in a row fail the check.
+    - name: {{ .name }}
+      count: 1
+      failureLimit: 0
+      successCondition: {{ default "true" .successCondition | quote }}
+      provider:
+        web:
+          url: {{ printf "http://%s-canary.%s.svc.cluster.local:%v%s" $name $.Release.Namespace $v.port .path | quote }}
+          timeoutSeconds: {{ $.Values.canary.timeoutSeconds }}
+    {{- end }}
+{{- end }}

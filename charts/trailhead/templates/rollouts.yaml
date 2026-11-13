@@ -1,0 +1,161 @@
+{{- /* web, api and admin: one Argo Rollout each, all on the same canary
+       steps. setCanaryScale brings up one canary pod while the routes keep
+       every visitor on stable (weight 0), then the two scripted checks run
+       against the canary Service, and only then is it promoted. Nothing is
+       judged on live traffic: the site is idle most of the time, so there
+       would be none to judge (decision record 0002). setCanaryScale needs
+       trafficRouting, which is why each Rollout names its route in a
+       VirtualService the chart renders. */}}
+{{- range $component := list "web" "api" "admin" }}
+{{- $ctx := dict "root" $ "component" $component }}
+{{- $v := index $.Values $component }}
+{{- $name := include "trailhead.componentName" $ctx }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ $name }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  replicas: {{ $v.replicas }}
+  selector:
+    matchLabels:
+      {{- include "trailhead.selectorLabels" $ctx | nindent 6 }}
+  strategy:
+    canary:
+      stableService: {{ $name }}
+      canaryService: {{ $name }}-canary
+      stableMetadata:
+        labels:
+          role: stable
+      canaryMetadata:
+        labels:
+          role: canary
+      trafficRouting:
+        istio:
+          virtualService:
+            {{- if eq $component "admin" }}
+            name: {{ include "trailhead.fullname" $ }}-admin
+            {{- else }}
+            name: {{ include "trailhead.fullname" $ }}
+            {{- end }}
+            routes:
+              - {{ $name }}
+      steps:
+        - setCanaryScale:
+            replicas: 1
+        # The canary reports the version its image is tagged with.
+        - analysis:
+            templates:
+              - templateName: {{ include "trailhead.fullname" $ }}-version-check
+            args:
+              - name: image
+                valueFrom:
+                  fieldRef:
+                    fieldPath: spec.template.spec.containers[0].image
+              - name: url
+                value: {{ printf "http://%s-canary.%s.svc.cluster.local:%v%s" $name $.Release.Namespace $v.port $v.analysis.versionPath | quote }}
+        # The canary answers its smoke test.
+        - analysis:
+            templates:
+              - templateName: {{ $name }}-smoke-test
+  template:
+    metadata:
+      labels:
+        {{- include "trailhead.selectorLabels" $ctx | nindent 8 }}
+        {{- with $.Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      {{- /* No service calls the Kubernetes API, so no pod gets a token to
+             leak. The Istio sidecar doesn't need it either: it proves its
+             identity with its own projected istio-token volume. */}}
+      automountServiceAccountToken: false
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $component }}
+          image: {{ include "trailhead.image" $ctx | quote }}
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $v.port }}
+              protocol: TCP
+            {{- if and $v.metrics $v.metrics.port }}
+            - name: metrics
+              containerPort: {{ $v.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          {{- $env := include "trailhead.databaseEnv" $ctx }}
+          {{- if or $v.metrics $env $v.extraEnv }}
+          env:
+            {{- /* First, so an extraEnv entry of the same name still wins:
+                   with duplicate names the last one counts. */}}
+            {{- if $v.metrics }}
+            - name: METRICS_PORT
+              value: {{ $v.metrics.port | default 0 | quote }}
+            {{- end }}
+            {{- with $env }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- with $v.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with $.Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          startupProbe:
+            {{- toYaml $v.probes.startup | nindent 12 }}
+          livenessProbe:
+            {{- toYaml $v.probes.liveness | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $v.probes.readiness | nindent 12 }}
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          {{- with $v.writablePaths }}
+          volumeMounts:
+            {{- include "trailhead.writableMounts" . | trim | nindent 12 }}
+          {{- end }}
+      {{- with $v.writablePaths }}
+      volumes:
+        {{- include "trailhead.writableVolumes" . | trim | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- /* labelSelector is added rather than asked for: it must match this
+             workload's own pods, which only the chart knows. No
+             matchLabelKeys: per-revision spread is what deadlocks a canary's
+             scheduling. */}}
+      {{- with $v.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range . }}
+        - {{ toYaml . | nindent 10 | trim }}
+          labelSelector:
+            matchLabels:
+              {{- include "trailhead.selectorLabels" $ctx | nindent 14 }}
+        {{- end }}
+      {{- end }}
+{{- end }}

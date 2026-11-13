@@ -1,0 +1,43 @@
+{{- /* Two Istio Gateways: the public one for web and api, and admin's own,
+       so the admin host is never on the public one's list. Both may select
+       the same ingress workload; what keeps admin off the internet is that
+       only the public hosts are routed to the cluster from outside, and the
+       AuthorizationPolicy that refuses a request carrying a tunnel header. */}}
+{{- range $gw := list (dict "component" "web" "suffix" "" "key" "ingress" "ingress" $.Values.ingress) (dict "component" "admin" "suffix" "-admin" "key" "admin.ingress" "ingress" $.Values.admin.ingress) }}
+{{- $ctx := dict "root" $ "component" $gw.component }}
+{{- $in := $gw.ingress }}
+{{- if not $in.hosts }}
+{{- fail (printf "%s.hosts is empty. Its Rollouts shift traffic through the VirtualService on these hosts, so set at least one hostname." $gw.key) }}
+{{- end }}
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: {{ include "trailhead.fullname" $ }}{{ $gw.suffix }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  selector:
+    {{- toYaml $in.gatewaySelector | nindent 4 }}
+  servers:
+    - hosts:
+        {{- toYaml $in.hosts | nindent 8 }}
+      port:
+        name: http
+        number: {{ $in.port }}
+        protocol: HTTP
+      {{- if $in.httpsRedirect }}
+      tls:
+        httpsRedirect: true
+      {{- end }}
+    {{- if $in.tls.enabled }}
+    - hosts:
+        {{- toYaml $in.hosts | nindent 8 }}
+      port:
+        name: https
+        number: 443
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: {{ required (printf "%s.tls.credentialName is required when %s.tls.enabled" $gw.key $gw.key) $in.tls.credentialName }}
+    {{- end }}
+{{- end }}

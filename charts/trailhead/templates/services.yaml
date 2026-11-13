@@ -1,0 +1,25 @@
+{{- /* Two Services per Rollout: the stable one, which the routes send
+       visitors to, and the -canary one, which only the scripted checks call.
+       Argo Rollouts adds the pod-template hash to each selector, so each
+       reaches only its own pods. */}}
+{{- range $component := list "web" "api" "admin" }}
+{{- $ctx := dict "root" $ "component" $component }}
+{{- $v := index $.Values $component }}
+{{- range $suffix := list "" "-canary" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "trailhead.componentName" $ctx }}{{ $suffix }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "trailhead.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: {{ $v.port }}
+      targetPort: http
+{{- end }}
+{{- end }}
