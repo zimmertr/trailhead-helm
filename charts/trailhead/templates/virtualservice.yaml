@@ -1,0 +1,75 @@
+{{- /* The public VirtualService sends `/api` and everything below it to api,
+       and every other path to web. Each route lists the stable and the
+       canary Service, and the Rollouts keep the canary at weight 0, so no
+       visitor ever reaches a canary (decision record 0002). */}}
+{{- $fullname := include "trailhead.fullname" . }}
+{{- $web := include "trailhead.componentName" (dict "root" . "component" "web") }}
+{{- $api := include "trailhead.componentName" (dict "root" . "component" "api") }}
+{{- $admin := include "trailhead.componentName" (dict "root" . "component" "admin") }}
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ $fullname }}
+  {{- include "trailhead.metadata" (dict "root" . "component" "web") | nindent 2 }}
+spec:
+  hosts:
+    {{- toYaml .Values.ingress.hosts | nindent 4 }}
+  gateways:
+    - {{ $fullname }}
+  http:
+    # `/api/` and `/api` alone, so a path that only starts with the letters,
+    # like `/apiary`, stays with web.
+    - name: {{ $api }}
+      match:
+        - uri:
+            prefix: /api/
+        - uri:
+            exact: /api
+      route:
+        - destination:
+            host: {{ $api }}
+            port:
+              number: {{ .Values.api.port }}
+          weight: 100
+        - destination:
+            host: {{ $api }}-canary
+            port:
+              number: {{ .Values.api.port }}
+          weight: 0
+    - name: {{ $web }}
+      route:
+        - destination:
+            host: {{ $web }}
+            port:
+              number: {{ .Values.web.port }}
+          weight: 100
+        - destination:
+            host: {{ $web }}-canary
+            port:
+              number: {{ .Values.web.port }}
+          weight: 0
+---
+# admin's own, bound only to admin's Gateway.
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ $fullname }}-admin
+  {{- include "trailhead.metadata" (dict "root" . "component" "admin") | nindent 2 }}
+spec:
+  hosts:
+    {{- toYaml .Values.admin.ingress.hosts | nindent 4 }}
+  gateways:
+    - {{ $fullname }}-admin
+  http:
+    - name: {{ $admin }}
+      route:
+        - destination:
+            host: {{ $admin }}
+            port:
+              number: {{ .Values.admin.port }}
+          weight: 100
+        - destination:
+            host: {{ $admin }}-canary
+            port:
+              number: {{ .Values.admin.port }}
+          weight: 0

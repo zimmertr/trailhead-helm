@@ -1,0 +1,32 @@
+apiVersion: v2
+name: trailhead-helm
+description: TJ Zimmerman's personal site as a 3D world. Four small services (web, api, admin and the fetcher) and a PostgreSQL database, on Argo Rollouts, Istio and CloudNativePG.
+type: application
+# version is overwritten at package time by CI (GitVersion). Kept here for local `helm template`.
+version: 0.1.0
+# appVersion is the default tag of all four trailhead images when none is
+# supplied. Must be a published ghcr.io/zimmertr/trailhead-* tag, or a default
+# install can't pull it. trailhead's release bumps it here by PR.
+appVersion: "0.1.0"
+# The database: PostgreSQL, run by the CloudNativePG operator from its own
+# upstream chart rather than a database this chart would have to maintain, as
+# bluebird-helm does. Off with `database.enabled: false`. The operator is not
+# a dependency: it installs cluster-wide CRDs and webhooks, so it is installed
+# once per cluster, beside this chart.
+dependencies:
+  - name: cluster
+    alias: database
+    version: 0.9.0
+    repository: https://cloudnative-pg.github.io/charts
+    condition: database.enabled
+home: https://github.com/zimmertr/trailhead
+sources:
+  - https://github.com/zimmertr/trailhead
+  - https://github.com/zimmertr/trailhead-helm
+keywords:
+  - personal-site
+  - argo-rollouts
+  - istio
+  - cloudnative-pg
+maintainers:
+  - name: TJ Zimmerman

@@ -1,0 +1,107 @@
+{{- /* Who may reach what, by Istio identity (decision record 0004). Every
+       caller named here is in the mesh, so its identity is proven by mTLS.
+       Two callers are not: the Rollouts controller, which runs the canary
+       checks, and Prometheus. They get the check paths and api's metrics
+       port, from anywhere, and nothing else. Kubelet probes never meet these
+       policies: the sidecar answers them itself. */}}
+{{- if .Values.authorizationPolicy.enabled }}
+{{- $gateways := .Values.authorizationPolicy.gatewayPrincipals }}
+{{- range $component := list "web" "api" "admin" }}
+{{- $ctx := dict "root" $ "component" $component }}
+{{- $v := index $.Values $component }}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "trailhead.componentName" $ctx }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "trailhead.selectorLabels" $ctx | nindent 6 }}
+  action: ALLOW
+  rules:
+    # The ingress gateway, for every path.
+    - from:
+        - source:
+            principals:
+              {{- toYaml $gateways | nindent 14 }}
+    # The canary checks, which read and change nothing.
+    - to:
+        - operation:
+            methods:
+              - GET
+              - HEAD
+            paths:
+              {{- include "trailhead.checkPaths" $ctx | fromJsonArray | toYaml | nindent 14 }}
+    {{- if and $v.metrics $v.metrics.port }}
+    # Prometheus, on the port the Service never carries.
+    - to:
+        - operation:
+            ports:
+              - {{ $v.metrics.port | quote }}
+    {{- end }}
+{{- end }}
+{{- with .Values.authorizationPolicy.adminDenyHeaders }}
+{{- $ctx := dict "root" $ "component" "admin" }}
+---
+# Checked before the ALLOW above: a request that passed through a tunnel from
+# the internet carries one of these headers, and never reaches admin.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "trailhead.componentName" $ctx }}-deny-tunnel
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "trailhead.selectorLabels" $ctx | nindent 6 }}
+  action: DENY
+  rules:
+    {{- range . }}
+    - when:
+        - key: {{ printf "request.headers[%s]" . }}
+          values:
+            - "*"
+    {{- end }}
+{{- end }}
+{{- if .Values.database.enabled }}
+{{- $ctx := dict "root" $ "component" "database" }}
+{{- $db := include "trailhead.databaseName" . }}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ $db }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: {{ $db }}
+  action: ALLOW
+  rules:
+    # PostgreSQL, for the three services and for the database's own pods,
+    # whose standbys stream from the primary under the cluster's service
+    # account.
+    - from:
+        - source:
+            principals:
+              {{- range $component := list "api" "admin" "fetcher" }}
+              {{- if (index $.Values $component).databaseRole }}
+              - {{ include "trailhead.principal" (dict "root" $ "account" (include "trailhead.componentName" (dict "root" $ "component" $component))) }}
+              {{- end }}
+              {{- end }}
+              - {{ include "trailhead.principal" (dict "root" $ "account" $db) }}
+      to:
+        - operation:
+            ports:
+              - "5432"
+    # The CloudNativePG operator, outside the mesh, asks each instance for its
+    # status on 8000, and Prometheus reads its metrics on 9187.
+    - to:
+        - operation:
+            ports:
+              - "8000"
+              - "9187"
+{{- end }}
+{{- end }}

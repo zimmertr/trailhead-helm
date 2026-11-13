@@ -1,0 +1,89 @@
+{{- if .Values.fetcher.enabled }}
+{{- /* The only workload that holds API tokens: they come from a Secret
+       created by hand, which the chart names and never writes. A batch job
+       has no server to probe, so it has no probes; activeDeadlineSeconds is
+       what stops a run that hangs. */}}
+{{- $ctx := dict "root" $ "component" "fetcher" }}
+{{- $v := .Values.fetcher }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "trailhead.componentName" $ctx }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  schedule: {{ $v.schedule | quote }}
+  # One run at a time: a slow run is never joined by the next.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ $v.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $v.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ $v.backoffLimit }}
+      activeDeadlineSeconds: {{ $v.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "trailhead.selectorLabels" $ctx | nindent 12 }}
+            {{- with .Values.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "trailhead.componentName" $ctx }}
+          automountServiceAccountToken: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: fetcher
+              image: {{ include "trailhead.image" $ctx | quote }}
+              imagePullPolicy: {{ $v.image.pullPolicy }}
+              envFrom:
+                - secretRef:
+                    name: {{ required "fetcher.tokensSecret must name the Secret that holds the fetcher's tokens" $v.tokensSecret }}
+              {{- $env := include "trailhead.databaseEnv" $ctx }}
+              {{- if or $env $v.extraEnv }}
+              env:
+                {{- with $env }}
+                {{- . | nindent 16 }}
+                {{- end }}
+                {{- with $v.extraEnv }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              {{- end }}
+              {{- with .Values.securityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              resources:
+                {{- toYaml $v.resources | nindent 16 }}
+              {{- with $v.writablePaths }}
+              volumeMounts:
+                {{- include "trailhead.writableMounts" . | trim | nindent 16 }}
+              {{- end }}
+          {{- with $v.writablePaths }}
+          volumes:
+            {{- include "trailhead.writableVolumes" . | trim | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

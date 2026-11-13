@@ -1,0 +1,30 @@
+# A PR preview: the same chart at its smallest. One pod per service, no
+# PodDisruptionBudgets, and a database of its own with one instance, so a
+# preview never touches the stable release's data. The canary checks still
+# run, so every preview exercises the gate its PR will meet. The hosts are
+# the ApplicationSet's to set, one per PR.
+#
+# Shipped inside the chart, so Argo CD can name it in `valueFiles` and CI
+# renders the same file.
+web:
+  replicas: 1
+  podDisruptionBudget:
+    enabled: false
+api:
+  replicas: 1
+  podDisruptionBudget:
+    enabled: false
+admin:
+  replicas: 1
+  podDisruptionBudget:
+    enabled: false
+# A preview runs a PR's code, and the tokens stay with code that has merged.
+fetcher:
+  enabled: false
+database:
+  cluster:
+    instances: 1
+    # A budget on one instance blocks every node drain.
+    enablePDB: false
+    storage:
+      size: 1Gi

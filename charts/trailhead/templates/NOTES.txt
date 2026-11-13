@@ -1,0 +1,25 @@
+{{ include "trailhead.fullname" . }} deployed in namespace "{{ .Release.Namespace }}".
+
+Images:
+  web      {{ include "trailhead.image" (dict "root" . "component" "web") }} ({{ .Values.web.replicas }})
+  api      {{ include "trailhead.image" (dict "root" . "component" "api") }} ({{ .Values.api.replicas }})
+  admin    {{ include "trailhead.image" (dict "root" . "component" "admin") }} ({{ .Values.admin.replicas }})
+{{- if .Values.fetcher.enabled }}
+  fetcher  {{ include "trailhead.image" (dict "root" . "component" "fetcher") }} ({{ .Values.fetcher.schedule }})
+{{- end }}
+
+Public hosts: {{ join ", " .Values.ingress.hosts }}
+Admin hosts:  {{ join ", " .Values.admin.ingress.hosts }}
+
+Secrets this release reads and never creates:
+{{- if .Values.fetcher.enabled }}
+  {{ .Values.fetcher.tokensSecret }} (the fetcher's tokens)
+{{- end }}
+{{- if .Values.database.enabled }}
+{{- range .Values.database.cluster.roles }}
+  {{ .passwordSecret.name }} (the {{ .name }} login)
+{{- end }}
+{{- end }}
+
+Rollout status:
+  kubectl argo rollouts get rollout {{ include "trailhead.fullname" . }}-web -n {{ .Release.Namespace }} --watch

@@ -1,0 +1,25 @@
+{{- /* The selector matches the component's labels alone, so during a canary
+       one budget covers stable and canary pods together. Per-ReplicaSet
+       budgets are not implemented upstream (argo-rollouts#2419). */}}
+{{- range $component := list "web" "api" "admin" }}
+{{- $ctx := dict "root" $ "component" $component }}
+{{- $pdb := (index $.Values $component).podDisruptionBudget }}
+{{- if $pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "trailhead.componentName" $ctx }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  {{- with $pdb.minAvailable }}
+  minAvailable: {{ . }}
+  {{- end }}
+  {{- with $pdb.maxUnavailable }}
+  maxUnavailable: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "trailhead.selectorLabels" $ctx | nindent 6 }}
+{{- end }}
+{{- end }}

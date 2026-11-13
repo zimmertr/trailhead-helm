@@ -1,0 +1,393 @@
+nameOverride: ""
+fullnameOverride: ""
+commonLabels: {}
+commonAnnotations: {}
+imagePullSecrets: []
+
+# Every pod in the chart (web, api, admin and the fetcher) runs with these,
+# and each image is built to run as uid/gid 10001. The namespace can enforce
+# Pod Security `restricted`: nothing here needs more.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+# The root filesystem is read-only, so each workload's `writablePaths` below
+# gets an emptyDir: the only places a process can write.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# The public site: the 3D world and the plain page, as static files from
+# nginx. Unprivileged nginx on 8080.
+web:
+  replicas: 3
+  image:
+    name: ghcr.io/zimmertr/trailhead-web
+    # Empty = chart appVersion. The images are released together, at one
+    # version, with SemVer tags only and no `latest`.
+    tag: ""
+    pullPolicy: IfNotPresent
+  port: 8080
+  # Not measured yet: the service doesn't exist. Static files from nginx are
+  # cheap, so these are a start to correct once it runs.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+  # nginx writes its pid and its temp files here.
+  writablePaths:
+    - /tmp
+    - /var/cache/nginx
+  extraEnv: []
+  # minAvailable, not maxUnavailable: PDB percentages round UP, so at 3
+  # replicas `minAvailable: 50%` keeps 2 pods through a drain, where
+  # `maxUnavailable: 50%` would allow 2 disruptions and leave 1.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 50%
+    maxUnavailable: ""
+  # One pod per worker while nodes last: 3 nodes gives [1,1,1], 2 gives [2,1]
+  # with nothing Pending. nodeTaintsPolicy Honor counts only the nodes the pod
+  # can land on, so the control-plane nodes don't pin the skew at 0 (the same
+  # spread bluebird runs). The chart adds the labelSelector.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      nodeTaintsPolicy: Honor
+  probes:
+    liveness:
+      httpGet:
+        path: /healthz
+        port: http
+      periodSeconds: 30
+    readiness:
+      httpGet:
+        path: /healthz
+        port: http
+      periodSeconds: 10
+    startup:
+      httpGet:
+        path: /healthz
+        port: http
+      failureThreshold: 30
+      periodSeconds: 2
+  # What a canary must answer before it is promoted. `versionPath` must
+  # answer `{"version": ..., "commit": ...}`, and its version must equal the
+  # image's tag. Each `smokeTest` entry is one GET against the canary
+  # Service; a non-2xx answer fails it, and `successCondition` (default
+  # `true`) is evaluated on the body, parsed as JSON when it is JSON. Add the
+  # plain page here once its path exists.
+  analysis:
+    versionPath: /version.json
+    smokeTest:
+      - name: healthz
+        path: /healthz
+      - name: home
+        path: /
+      - name: version
+        path: /version.json
+        successCondition: len(result.version) > 0 && len(result.commit) > 0
+
+# The public API. It holds no tokens and calls nothing outside the cluster.
+api:
+  replicas: 3
+  image:
+    name: ghcr.io/zimmertr/trailhead-api
+    tag: ""
+    pullPolicy: IfNotPresent
+  port: 8080
+  # Not measured yet.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
+  writablePaths:
+    - /tmp
+  extraEnv: []
+  # The service's Prometheus metrics. One value drives the METRICS_PORT env,
+  # the `metrics` containerPort and the port the PodMonitor scrapes, so they
+  # can't drift apart. Never added to the Service, so nothing the gateway
+  # routes can reach it.
+  metrics:
+    port: 9464
+    # A monitoring.coreos.com/v1 PodMonitor. The pods' `role` label
+    # (stable or canary, from the Rollout) is copied onto every series.
+    podMonitor:
+      enabled: true
+  # The database login the service connects as: a role under
+  # `database.cluster.roles`. Empty = no DATABASE_URL.
+  databaseRole: trailhead_api
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 50%
+    maxUnavailable: ""
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      nodeTaintsPolicy: Honor
+  probes:
+    liveness:
+      httpGet:
+        path: /healthz
+        port: http
+      periodSeconds: 30
+    readiness:
+      httpGet:
+        path: /readyz
+        port: http
+      periodSeconds: 10
+    startup:
+      httpGet:
+        path: /healthz
+        port: http
+      failureThreshold: 30
+      periodSeconds: 2
+  analysis:
+    versionPath: /api/version
+    smokeTest:
+      - name: healthz
+        path: /healthz
+      - name: readyz
+        path: /readyz
+      - name: version
+        path: /api/version
+        successCondition: len(result.version) > 0 && len(result.commit) > 0
+
+# The private panel. Never on the public gateway: it has a hostname and an
+# Istio Gateway of its own, under `admin.ingress`.
+admin:
+  # One replica, so no PodDisruptionBudget: a budget on one pod blocks every
+  # node drain.
+  replicas: 1
+  image:
+    name: ghcr.io/zimmertr/trailhead-admin
+    tag: ""
+    pullPolicy: IfNotPresent
+  port: 8080
+  # Not measured yet.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  writablePaths:
+    - /tmp
+  extraEnv: []
+  databaseRole: trailhead_admin
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 50%
+    maxUnavailable: ""
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      httpGet:
+        path: /healthz
+        port: http
+      periodSeconds: 30
+    readiness:
+      httpGet:
+        path: /readyz
+        port: http
+      periodSeconds: 10
+    startup:
+      httpGet:
+        path: /healthz
+        port: http
+      failureThreshold: 30
+      periodSeconds: 2
+  analysis:
+    versionPath: /version
+    smokeTest:
+      - name: healthz
+        path: /healthz
+      - name: readyz
+        path: /readyz
+      - name: version
+        path: /version
+        successCondition: len(result.version) > 0 && len(result.commit) > 0
+  # The home-network route. Its own Istio Gateway, so the admin host is never
+  # served by the public one. The hosts default to a placeholder that
+  # resolves nowhere; an empty list fails the render.
+  ingress:
+    gatewaySelector:
+      istio: gateway
+    hosts:
+      - admin.trailhead.example.test
+    port: 80
+    httpsRedirect: false
+    tls:
+      enabled: false
+      credentialName: ""
+
+# The only workload that holds API tokens, run as a CronJob.
+fetcher:
+  enabled: true
+  image:
+    name: ghcr.io/zimmertr/trailhead-fetcher
+    tag: ""
+    pullPolicy: IfNotPresent
+  schedule: "23 * * * *"
+  # A Secret created by hand in the release's namespace, never by the chart.
+  # Every key becomes an env var of the fetcher, and of nothing else.
+  tokensSecret: trailhead-fetcher-tokens
+  # Tried three times, then left to the next hour.
+  backoffLimit: 2
+  # A run still going after ten minutes has hung.
+  activeDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  # Not measured yet.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
+  writablePaths:
+    - /tmp
+  extraEnv: []
+  databaseRole: trailhead_fetcher
+
+# The public route: web on every path of these hosts, and api on `/api` and
+# below. The hosts default to a placeholder that resolves nowhere; an empty
+# list fails the render, because the web and api Rollouts shift traffic
+# through this VirtualService.
+ingress:
+  gatewaySelector:
+    istio: gateway
+  hosts:
+    - trailhead.example.test
+  port: 80
+  httpsRedirect: false
+  tls:
+    enabled: false
+    credentialName: ""
+
+# The canary steps every Rollout runs: one canary pod with no visitor traffic,
+# then the version check, then the smoke test, then promotion. A failed check
+# aborts the rollout and the stable version keeps serving.
+canary:
+  # The canary Service keeps the stable pod hash for about a second after the
+  # canary pod is created, so a check fired at once can read the stable
+  # version (measured on bluebird). The delay lets the selector move first.
+  versionCheckInitialDelay: 15s
+  timeoutSeconds: 10
+
+# Istio AuthorizationPolicies: web, api and admin answer only the ingress
+# gateway, and the database only api, admin and the fetcher. The Rollouts
+# controller and Prometheus run outside the mesh, so two holes are left: GET
+# on each workload's check paths (the version path and the smoke test paths)
+# from anywhere, and api's metrics port.
+authorizationPolicy:
+  enabled: true
+  trustDomain: cluster.local
+  # The ingress gateway's identity, `<trustDomain>/ns/<namespace>/sa/<service
+  # account>`, as Istio's gateway chart installs it.
+  gatewayPrincipals:
+    - cluster.local/ns/istio-gateway/sa/gateway
+  # Refuses any request to admin that carries one of these headers, whatever
+  # its host. Cloudflare adds CF-Connecting-IP to every request through a
+  # tunnel, so a request that came from the internet never reaches admin.
+  adminDenyHeaders:
+    - cf-connecting-ip
+
+# PostgreSQL for api, admin and the fetcher. Everything under this key except
+# `enabled` is the CloudNativePG `cluster` chart's own values
+# (https://github.com/cloudnative-pg/charts). The operator must already run in
+# the cluster.
+database:
+  enabled: true
+  type: postgresql
+  version:
+    postgresql: "18"
+  cluster:
+    # Named outright, with its digest, so a rebuild under the same tag
+    # arrives by a PR and never at a pod restart. `standard` is the smaller
+    # flavour. It moves by hand, like the subchart's version in Chart.yaml.
+    imageName: ghcr.io/cloudnative-pg/postgresql:18-standard-trixie@sha256:23719505c7cc417b043ffd9998b44ab8d57fec1d92f0bf11b231a1754a5962f2
+    # Three instances, so a drain or a failed instance hands over to a
+    # standby in seconds.
+    instances: 3
+    # Keeps a drain from taking the primary and a standby at once.
+    enablePDB: true
+    # Nothing needs a superuser, so no superuser password is created to keep
+    # safe.
+    enableSuperuserAccess: false
+    # The database and its owner, written down rather than left to the
+    # operator's defaults, because the services' DATABASE_URL names the
+    # database. Nothing connects as the owner yet.
+    initdb:
+      database: app
+      owner: app
+    # PostgreSQL's own default, written down: three api pods, an admin, the
+    # fetcher and a canary each fit with room.
+    postgresql:
+      parameters:
+        max_connections: "100"
+    # A guess: the data is small (project numbers and a summit register).
+    storage:
+      size: 5Gi
+    # Not measured yet.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    # One login per service, so each has only what it needs. CloudNativePG
+    # creates and updates the roles, but it grants no table privileges, so
+    # these give read through PostgreSQL's predefined roles, and write to the
+    # fetcher alone. The narrower grants (api inserting a register entry,
+    # admin updating one) belong in the app's migrations. Each passwordSecret
+    # is a `kubernetes.io/basic-auth` Secret created by hand, and the chart
+    # builds the service's DATABASE_URL from it, so its password must be safe
+    # in a URL (hex is).
+    roles:
+      - name: trailhead_api
+        ensure: present
+        login: true
+        inRoles:
+          - pg_read_all_data
+        passwordSecret:
+          name: trailhead-api-database
+      - name: trailhead_admin
+        ensure: present
+        login: true
+        inRoles:
+          - pg_read_all_data
+        passwordSecret:
+          name: trailhead-admin-database
+      - name: trailhead_fetcher
+        ensure: present
+        login: true
+        inRoles:
+          - pg_read_all_data
+          - pg_write_all_data
+        passwordSecret:
+          name: trailhead-fetcher-database

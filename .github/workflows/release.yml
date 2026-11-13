@@ -1,0 +1,42 @@
+name: Release Chart
+
+# A chart release, every step of it a job of yggdrasil's release module: it
+# reads the version from the squash commit's title (GitVersion, the module's
+# default patterns), makes the git tag and GitHub release, and pushes the
+# chart under that version. Decision record 0001.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
+      - '.github/workflows/release.yml'
+  # Manual runs from main only: the module releases only on main, so a
+  # dispatch from another branch publishes nothing.
+  workflow_dispatch:
+
+# Serialize chart releases, so two quick merges can't race for one version.
+# cancel-in-progress stays false so every chart release still lands, in order.
+concurrency:
+  group: chart-release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  release:
+    name: Release
+    uses: zimmertr/yggdrasil/.github/workflows/release.yml@f805e7b874e54e661d8dc8ad528883228bfc567b # v1.2.9
+    permissions:
+      contents: write # the tag and release
+      packages: write # the chart, pushed to oci://ghcr.io/zimmertr
+    with:
+      # No image, so the chart keeps the appVersion in its Chart.yaml: the
+      # default tag of all four images, which trailhead's release sets by PR.
+      # The module fetches the database subchart as it packages: it is not
+      # committed, and charts/trailhead/charts/ and Chart.lock are ignored.
+      #
+      # No `deploys` yet: nothing in Kubernetes-Manifests installs the chart.
+      # When the stable app and the preview ApplicationSet exist, they go here
+      # as bluebird-helm's do, with the GH_PAT secret as `deploy-token`.
+      charts: '[{"chart": "charts/trailhead"}]'

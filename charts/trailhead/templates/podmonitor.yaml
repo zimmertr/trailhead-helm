@@ -1,0 +1,23 @@
+{{- /* Scrapes the pod port directly rather than through the Service: the
+       metrics port is kept off the Service so nothing the gateway routes can
+       reach it, and a pod-level scrape sees stable and canary pods under one
+       selector. */}}
+{{- if and .Values.api.metrics.podMonitor.enabled .Values.api.metrics.port }}
+{{- $ctx := dict "root" $ "component" "api" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "trailhead.componentName" $ctx }}
+  {{- include "trailhead.metadata" $ctx | nindent 2 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "trailhead.selectorLabels" $ctx | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+  {{- /* role is stable or canary, stamped on the pods by the Rollout, so the
+         two revisions' series stay apart. */}}
+  podTargetLabels:
+    - role
+{{- end }}
