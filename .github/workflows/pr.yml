@@ -1,0 +1,55 @@
+name: Chart PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: chart-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # yggdrasil's chart module: the database subchart fetched, `helm lint`, and a
+  # render with the defaults (the stable release, on placeholder hosts), on
+  # the Helm version the release packages with. Then this repo's own renders
+  # below. The check is `Chart / Chart`. Decision record 0001.
+  chart:
+    name: Chart
+    uses: zimmertr/yggdrasil/.github/workflows/chart.yml@f805e7b874e54e661d8dc8ad528883228bfc567b # v1.2.9
+    permissions:
+      contents: read
+    with:
+      chart: charts/trailhead
+      test: |
+        # The stable release: every rule the chart's README promises, checked
+        # on the render.
+        helm template trailhead "$CHART" -n trailhead-system \
+          | yq -o=json -I=0 '.' \
+          | python3 .github/scripts/check_render.py
+        # The same with TLS on both gateways.
+        helm template trailhead "$CHART" -n trailhead-system \
+          --set ingress.tls.enabled=true --set ingress.tls.credentialName=trailhead \
+          --set ingress.httpsRedirect=true \
+          --set admin.ingress.tls.enabled=true --set admin.ingress.tls.credentialName=trailhead-admin \
+          >/dev/null
+        # A PR preview, from the values file the preview ApplicationSet names.
+        helm lint "$CHART" -f "$CHART/values-preview.yaml"
+        helm template trailhead-pr-1 "$CHART" -n trailhead-pr-system \
+          -f "$CHART/values-preview.yaml" \
+          --set 'ingress.hosts[0]=pr-1.example.test' \
+          --set 'admin.ingress.hosts[0]=admin.pr-1.example.test' \
+          | yq -o=json -I=0 '.' \
+          | python3 .github/scripts/check_render.py --preview
+        # A host list left empty fails the render with its own message, rather
+        # than rendering Rollouts whose VirtualService serves nothing.
+        for key in ingress.hosts admin.ingress.hosts; do
+          if helm template trailhead "$CHART" --set-json "$key=[]" >/dev/null 2>err.txt; then
+            echo "::error::An empty $key rendered."
+            exit 1
+          fi
+          grep -q "$key is empty" err.txt
+        done
