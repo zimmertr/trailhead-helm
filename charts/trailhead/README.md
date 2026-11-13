@@ -12,7 +12,7 @@ The chart deploys four small services and a database:
 | `fetcher` | `CronJob` | one run at a time | The only workload that holds API tokens |
 | database | CloudNativePG `Cluster` | 3 instances | PostgreSQL, with one login per service |
 
-It is built for my cluster and needs everything that runs there: **Argo Rollouts**, **Istio** (sidecar injection on in the namespace), the **CloudNativePG** operator and the **Prometheus operator**. Nothing here is optional the way it is in bluebird-helm, because the canary steps need Istio to keep visitors off the canary.
+It is built for my cluster and needs everything that runs there: **Argo Rollouts**, **Istio** (sidecar injection on in the namespace), the **CloudNativePG** operator and the **Prometheus operator**. Argo Rollouts and Istio aren't optional the way they are in bluebird-helm, because the canary steps need Istio to keep visitors off the canary.
 
 Every instance is **release-scoped**: all selectors key on `app.kubernetes.io/instance`, so the stable release and any number of PR previews can share a namespace.
 
