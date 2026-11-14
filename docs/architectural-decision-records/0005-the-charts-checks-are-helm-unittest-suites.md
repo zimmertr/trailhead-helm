@@ -3,7 +3,7 @@
 - Status: Accepted. Supersedes 0001's PR check
 - Date: 2026-11-13
 - Decider: TJ, 2026-11-13, on hevy-garmin-sync#67: "Both, and other repos need to align on this solution instead of hand-rolling" (yggdrasil record 0060).
-- Issues and PRs: #4
+- Issues and PRs: #4, #5
 - Cited in code as: decision record 0005, in `.github/workflows/pr.yml`
 - Guide: [`CLAUDE.md`](../../CLAUDE.md), Rules, "The README is TJ's"
 
