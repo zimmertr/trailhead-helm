@@ -1,0 +1,66 @@
+# The public Gateway and admin's own (record 0004).
+suite: gateways
+templates:
+  - gateway.yaml
+release:
+  namespace: trailhead-system
+tests:
+  - it: keeps the admin host off the public Gateway
+    asserts:
+      - hasDocuments:
+          count: 2
+      - lengthEqual:
+          path: spec.servers
+          count: 1
+        documentSelector: &public
+          path: metadata.name
+          value: RELEASE-NAME
+      - notContains:
+          path: spec.servers[0].hosts
+          content: admin.trailhead.example.test
+        documentSelector: *public
+
+  - it: keeps the admin host off the public Gateway in a preview
+    release:
+      namespace: trailhead-pr-system
+    values:
+      - ../values-preview.yaml
+    set:
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts:
+      - hasDocuments:
+          count: 2
+      - lengthEqual:
+          path: spec.servers
+          count: 1
+        documentSelector: *public
+      - notContains:
+          path: spec.servers[0].hosts
+          content: admin.pr-1.example.test
+        documentSelector: *public
+
+  - it: renders with TLS on both Gateways
+    set:
+      ingress.tls.enabled: true
+      ingress.tls.credentialName: trailhead
+      ingress.httpsRedirect: true
+      admin.ingress.tls.enabled: true
+      admin.ingress.tls.credentialName: trailhead-admin
+    asserts:
+      - notFailedTemplate: {}
+
+  # Rather than rendering Rollouts whose VirtualService serves nothing.
+  - it: refuses an empty ingress.hosts
+    set:
+      ingress.hosts: []
+    asserts:
+      - failedTemplate:
+          errorPattern: '^ingress\.hosts is empty'
+
+  - it: refuses an empty admin.ingress.hosts
+    set:
+      admin.ingress.hosts: []
+    asserts:
+      - failedTemplate:
+          errorPattern: 'admin\.ingress\.hosts is empty'

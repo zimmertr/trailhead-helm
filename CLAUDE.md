@@ -12,7 +12,7 @@ When a change here makes a decision, write its record in [`docs/architectural-de
 - **Each service gets its own database login.** The chart never creates a Secret: logins and tokens are made by hand. Record: [0003](docs/architectural-decision-records/0003-one-database-login-per-service.md)
 - **Only the gateway reaches the services.** `admin` is never on the public Gateway. A new check path is let through the AuthorizationPolicy by the chart, so add it to `analysis.smokeTest`, not to the policy. Record: [0004](docs/architectural-decision-records/0004-only-the-gateway-reaches-the-services.md)
 - **No real hostname in the repo.** Hosts are values with `example.test` placeholders.
-- **The README is TJ's.** Keep it accurate and in TJ's voice, and never restructure it. A value change updates `charts/trailhead/README.md` in the same PR, and a rule the README promises gets a check in `.github/scripts/check_render.py`.
+- **The README is TJ's.** Keep it accurate and in TJ's voice, and never restructure it. A value change updates `charts/trailhead/README.md` in the same PR, and a rule the README promises gets a helm-unittest test in `charts/trailhead/tests/`, on the stable and the preview values. Record: [0005](docs/architectural-decision-records/0005-the-charts-checks-are-helm-unittest-suites.md)
 
 ## Issues
 

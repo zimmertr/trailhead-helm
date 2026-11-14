@@ -1,0 +1,220 @@
+# web, api and admin: the rules the chart's README promises for each
+# Rollout, on the stable release and on a PR preview, which renders with
+# values-preview.yaml as the preview ApplicationSet does. The other suites
+# check that the names each Rollout points at are rendered.
+suite: rollouts
+templates:
+  - rollouts.yaml
+release:
+  namespace: trailhead-system
+tests:
+  - it: runs three web, three api and one admin pod
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: spec.replicas
+          value: 3
+        documentSelector: &web
+          path: metadata.name
+          value: RELEASE-NAME-web
+      - equal:
+          path: spec.replicas
+          value: 3
+        documentSelector: &api
+          path: metadata.name
+          value: RELEASE-NAME-api
+      - equal:
+          path: spec.replicas
+          value: 1
+        documentSelector: &admin
+          path: metadata.name
+          value: RELEASE-NAME-admin
+
+  - it: runs one pod of each in a preview
+    release: &preview-release
+      namespace: trailhead-pr-system
+    values: &preview-values
+      - ../values-preview.yaml
+    set: &preview-hosts
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: locks every pod down
+    asserts: &locked
+      # Nothing here calls the Kubernetes API, so no pod holds a token.
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      # One container per pod, so containers[0] is every container.
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - exists:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+      - exists:
+          path: spec.template.spec.containers[0].resources.requests.memory
+      - exists:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+      - exists:
+          path: spec.template.spec.containers[0].resources.limits.memory
+      - exists:
+          path: spec.template.spec.containers[0].startupProbe
+      - exists:
+          path: spec.template.spec.containers[0].livenessProbe
+      - exists:
+          path: spec.template.spec.containers[0].readinessProbe
+      # The fetcher's tokens are the fetcher's alone.
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom[?(@.secretRef.name == 'trailhead-fetcher-tokens')]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.valueFrom.secretKeyRef.name == 'trailhead-fetcher-tokens')]
+
+  - it: locks every pod down in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    asserts: *locked
+
+  # Record 0002: setCanaryScale brings up a canary that no visitor reaches,
+  # and two scripted checks gate its promotion.
+  - it: checks each canary twice and never sends it visitors
+    asserts: &steps
+      - exists:
+          path: spec.strategy.canary.steps[0].setCanaryScale
+      - notExists:
+          path: spec.strategy.canary.steps[?(@.setWeight)]
+      - exists:
+          path: spec.strategy.canary.steps[1].analysis
+      - exists:
+          path: spec.strategy.canary.steps[2].analysis
+
+  - it: checks each canary twice and never sends it visitors in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    asserts: *steps
+
+  # Each name below is checked as rendered in the suite of its template.
+  - it: points web at its own account, Services, route and checks
+    documentSelector: *web
+    asserts: &web-names
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: web
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-web
+      - equal:
+          path: spec.strategy.canary.stableService
+          value: RELEASE-NAME-web
+      - equal:
+          path: spec.strategy.canary.canaryService
+          value: RELEASE-NAME-web-canary
+      - equal:
+          path: spec.strategy.canary.trafficRouting.istio.virtualService
+          value:
+            name: RELEASE-NAME
+            routes: [RELEASE-NAME-web]
+      - equal:
+          path: spec.strategy.canary.steps[1].analysis.templates
+          value: [templateName: RELEASE-NAME-version-check]
+      - equal:
+          path: spec.strategy.canary.steps[2].analysis.templates
+          value: [templateName: RELEASE-NAME-web-smoke-test]
+
+  - it: points api at its own account, Services, route and checks
+    documentSelector: *api
+    asserts: &api-names
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: api
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-api
+      - equal:
+          path: spec.strategy.canary.stableService
+          value: RELEASE-NAME-api
+      - equal:
+          path: spec.strategy.canary.canaryService
+          value: RELEASE-NAME-api-canary
+      - equal:
+          path: spec.strategy.canary.trafficRouting.istio.virtualService
+          value:
+            name: RELEASE-NAME
+            routes: [RELEASE-NAME-api]
+      - equal:
+          path: spec.strategy.canary.steps[1].analysis.templates
+          value: [templateName: RELEASE-NAME-version-check]
+      - equal:
+          path: spec.strategy.canary.steps[2].analysis.templates
+          value: [templateName: RELEASE-NAME-api-smoke-test]
+
+  - it: points admin at its own account, Services, route and checks
+    documentSelector: *admin
+    asserts: &admin-names
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: admin
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-admin
+      - equal:
+          path: spec.strategy.canary.stableService
+          value: RELEASE-NAME-admin
+      - equal:
+          path: spec.strategy.canary.canaryService
+          value: RELEASE-NAME-admin-canary
+      - equal:
+          path: spec.strategy.canary.trafficRouting.istio.virtualService
+          value:
+            name: RELEASE-NAME-admin
+            routes: [RELEASE-NAME-admin]
+      - equal:
+          path: spec.strategy.canary.steps[1].analysis.templates
+          value: [templateName: RELEASE-NAME-version-check]
+      - equal:
+          path: spec.strategy.canary.steps[2].analysis.templates
+          value: [templateName: RELEASE-NAME-admin-smoke-test]
+
+  - it: points web at its own account, Services, route and checks in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    documentSelector: *web
+    asserts: *web-names
+
+  - it: points api at its own account, Services, route and checks in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    documentSelector: *api
+    asserts: *api-names
+
+  - it: points admin at its own account, Services, route and checks in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    documentSelector: *admin
+    asserts: *admin-names

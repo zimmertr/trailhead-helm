@@ -1,0 +1,56 @@
+# The checks each Rollout names (rollouts_test.yaml) are rendered, and every
+# one is a scripted request, never a query on live traffic (record 0002).
+suite: analysistemplates
+templates:
+  - analysistemplates.yaml
+release:
+  namespace: trailhead-system
+tests:
+  - it: renders the version check and a smoke test for each Rollout
+    asserts: &rendered
+      - hasDocuments:
+          count: 4
+      - containsDocument:
+          kind: AnalysisTemplate
+          apiVersion: argoproj.io/v1alpha1
+          name: RELEASE-NAME-version-check
+          any: true
+      - containsDocument:
+          kind: AnalysisTemplate
+          apiVersion: argoproj.io/v1alpha1
+          name: RELEASE-NAME-web-smoke-test
+          any: true
+      - containsDocument:
+          kind: AnalysisTemplate
+          apiVersion: argoproj.io/v1alpha1
+          name: RELEASE-NAME-api-smoke-test
+          any: true
+      - containsDocument:
+          kind: AnalysisTemplate
+          apiVersion: argoproj.io/v1alpha1
+          name: RELEASE-NAME-admin-smoke-test
+          any: true
+
+  - it: renders the version check and a smoke test for each Rollout in a preview
+    release: &preview-release
+      namespace: trailhead-pr-system
+    values: &preview-values
+      - ../values-preview.yaml
+    set: &preview-hosts
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts: *rendered
+
+  - it: checks with scripted requests alone
+    asserts: &scripted
+      - exists:
+          path: spec.metrics[0].provider.web
+      # No metric without a web provider.
+      - notExists:
+          path: spec.metrics[?(!@.provider.web)]
+
+  - it: checks with scripted requests alone in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    asserts: *scripted

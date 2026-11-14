@@ -1,0 +1,52 @@
+# The stable and canary Service each Rollout names (rollouts_test.yaml) are
+# rendered.
+suite: services
+templates:
+  - services.yaml
+release:
+  namespace: trailhead-system
+tests:
+  - it: gives each Rollout a stable and a canary Service
+    asserts: &services
+      - hasDocuments:
+          count: 6
+      - containsDocument:
+          kind: Service
+          apiVersion: v1
+          name: RELEASE-NAME-web
+          any: true
+      - containsDocument:
+          kind: Service
+          apiVersion: v1
+          name: RELEASE-NAME-web-canary
+          any: true
+      - containsDocument:
+          kind: Service
+          apiVersion: v1
+          name: RELEASE-NAME-api
+          any: true
+      - containsDocument:
+          kind: Service
+          apiVersion: v1
+          name: RELEASE-NAME-api-canary
+          any: true
+      - containsDocument:
+          kind: Service
+          apiVersion: v1
+          name: RELEASE-NAME-admin
+          any: true
+      - containsDocument:
+          kind: Service
+          apiVersion: v1
+          name: RELEASE-NAME-admin-canary
+          any: true
+
+  - it: gives each Rollout a stable and a canary Service in a preview
+    release:
+      namespace: trailhead-pr-system
+    values:
+      - ../values-preview.yaml
+    set:
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts: *services
