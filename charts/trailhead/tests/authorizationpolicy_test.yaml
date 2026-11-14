@@ -1,0 +1,60 @@
+# Only the callers the chart names reach web, api, admin and the database
+# (record 0004).
+suite: authorizationpolicies
+templates:
+  - authorizationpolicy.yaml
+release:
+  namespace: trailhead-system
+tests:
+  - it: allows named callers alone to web, api, admin and the database
+    asserts: &allow
+      - equal:
+          path: spec.action
+          value: ALLOW
+        documentSelector: &web
+          path: metadata.name
+          value: RELEASE-NAME-web
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web
+        documentSelector: *web
+      - equal:
+          path: spec.action
+          value: ALLOW
+        documentSelector: &api
+          path: metadata.name
+          value: RELEASE-NAME-api
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: api
+        documentSelector: *api
+      - equal:
+          path: spec.action
+          value: ALLOW
+        documentSelector: &admin
+          path: metadata.name
+          value: RELEASE-NAME-admin
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: admin
+        documentSelector: *admin
+      - equal:
+          path: spec.action
+          value: ALLOW
+        documentSelector: &database
+          path: metadata.name
+          value: RELEASE-NAME-database
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: database
+        documentSelector: *database
+
+  - it: allows named callers alone to web, api, admin and the database in a preview
+    release:
+      namespace: trailhead-pr-system
+    values:
+      - ../values-preview.yaml
+    set:
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts: *allow

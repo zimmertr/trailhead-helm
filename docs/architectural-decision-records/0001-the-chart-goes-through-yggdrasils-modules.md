@@ -1,6 +1,6 @@
 # 0001. The chart is checked, pushed and released by yggdrasil's modules, with the `appVersion` in `Chart.yaml`
 
-- Status: Accepted
+- Status: Accepted. Its PR check superseded by 0005
 - Date: 2026-11-12
 - Decider: TJ, 2026-11-12, asking for this repo's first chart to be modelled on bluebird-helm, its CI wiring included.
 - Issues and PRs: #3

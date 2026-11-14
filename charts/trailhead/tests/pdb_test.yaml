@@ -1,0 +1,36 @@
+suite: pdb
+templates:
+  - pdb.yaml
+release:
+  namespace: trailhead-system
+tests:
+  # A budget on admin's one pod would block every node drain.
+  - it: keeps a budget for web and api, and none for admin
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: web
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-web
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: api
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-api
+
+  # One pod of each, so a budget would block every drain.
+  - it: keeps no budget in a preview
+    release:
+      namespace: trailhead-pr-system
+    values:
+      - ../values-preview.yaml
+    set:
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts:
+      - hasDocuments:
+          count: 0

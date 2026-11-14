@@ -1,0 +1,70 @@
+# The fetcher: the only workload that holds API tokens.
+suite: fetcher
+templates:
+  - fetcher-cronjob.yaml
+release:
+  namespace: trailhead-system
+tests:
+  - it: runs one fetcher, and never two runs at once
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: CronJob
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+
+  - it: locks the fetcher's pod down
+    asserts:
+      # Nothing here calls the Kubernetes API, so no pod holds a token.
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-fetcher
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      # One container, the fetcher, so containers[0] is every container and
+      # the tokens reach nothing else.
+      - lengthEqual:
+          path: spec.jobTemplate.spec.template.spec.containers
+          count: 1
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].name
+          value: fetcher
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].resources.requests.cpu
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].resources.requests.memory
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].resources.limits.cpu
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].resources.limits.memory
+
+  # A preview runs a PR's code, and the tokens stay with code that has merged.
+  - it: runs no fetcher in a preview
+    release:
+      namespace: trailhead-pr-system
+    values:
+      - ../values-preview.yaml
+    set:
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts:
+      - hasDocuments:
+          count: 0

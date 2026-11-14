@@ -1,0 +1,126 @@
+# One public VirtualService and one for admin, on Gateways they never share
+# (record 0004). Each route the Rollouts name (rollouts_test.yaml) lists the
+# stable Service, then the canary.
+suite: virtualservices
+templates:
+  - virtualservice.yaml
+release:
+  namespace: trailhead-system
+tests:
+  - it: sends /api to api and every other path to web, through the public Gateway
+    asserts: &public
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web
+        documentSelector: &public-vs
+          path: metadata.name
+          value: RELEASE-NAME
+      - equal:
+          path: spec.gateways
+          value: [RELEASE-NAME]
+        documentSelector: *public-vs
+      # Two routes, so nothing on the public hosts reaches admin.
+      - lengthEqual:
+          path: spec.http
+          count: 2
+        documentSelector: *public-vs
+      - equal:
+          path: spec.http[0].name
+          value: RELEASE-NAME-api
+        documentSelector: *public-vs
+      - lengthEqual:
+          path: spec.http[0].route
+          count: 2
+        documentSelector: *public-vs
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: RELEASE-NAME-api
+        documentSelector: *public-vs
+      - equal:
+          path: spec.http[0].route[1].destination.host
+          value: RELEASE-NAME-api-canary
+        documentSelector: *public-vs
+      - equal:
+          path: spec.http[1].name
+          value: RELEASE-NAME-web
+        documentSelector: *public-vs
+      - lengthEqual:
+          path: spec.http[1].route
+          count: 2
+        documentSelector: *public-vs
+      - equal:
+          path: spec.http[1].route[0].destination.host
+          value: RELEASE-NAME-web
+        documentSelector: *public-vs
+      - equal:
+          path: spec.http[1].route[1].destination.host
+          value: RELEASE-NAME-web-canary
+        documentSelector: *public-vs
+
+  - it: sends admin's host to admin alone, through admin's own Gateway
+    asserts: &admin
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: admin
+        documentSelector: &admin-vs
+          path: metadata.name
+          value: RELEASE-NAME-admin
+      - equal:
+          path: spec.gateways
+          value: [RELEASE-NAME-admin]
+        documentSelector: *admin-vs
+      - lengthEqual:
+          path: spec.http
+          count: 1
+        documentSelector: *admin-vs
+      - equal:
+          path: spec.http[0].name
+          value: RELEASE-NAME-admin
+        documentSelector: *admin-vs
+      - lengthEqual:
+          path: spec.http[0].route
+          count: 2
+        documentSelector: *admin-vs
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: RELEASE-NAME-admin
+        documentSelector: *admin-vs
+      - equal:
+          path: spec.http[0].route[1].destination.host
+          value: RELEASE-NAME-admin-canary
+        documentSelector: *admin-vs
+
+  - it: keeps the admin host off the public VirtualService
+    asserts:
+      - notContains:
+          path: spec.hosts
+          content: admin.trailhead.example.test
+        documentSelector: *public-vs
+
+  - it: sends /api to api and every other path to web, through the public Gateway in a preview
+    release: &preview-release
+      namespace: trailhead-pr-system
+    values: &preview-values
+      - ../values-preview.yaml
+    set: &preview-hosts
+      ingress.hosts: [pr-1.example.test]
+      admin.ingress.hosts: [admin.pr-1.example.test]
+    asserts: *public
+
+  - it: sends admin's host to admin alone, through admin's own Gateway in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    asserts: *admin
+
+  - it: keeps the admin host off the public VirtualService in a preview
+    release: *preview-release
+    values: *preview-values
+    set: *preview-hosts
+    asserts:
+      - notContains:
+          path: spec.hosts
+          content: admin.pr-1.example.test
+        documentSelector: *public-vs
