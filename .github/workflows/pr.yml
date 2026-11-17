@@ -21,7 +21,7 @@ jobs:
   # `Chart / Chart`. Decision records 0001 and 0005.
   chart:
     name: Chart
-    uses: zimmertr/yggdrasil/.github/workflows/chart.yml@f5661bbe5864dfae07e6dbd603489e2326980b3d # v2.0.0
+    uses: zimmertr/yggdrasil/.github/workflows/chart.yml@f81440545f0f987933300d02ae67ab206be59ce5 # v2.0.4
     permissions:
       contents: read
     with:
