@@ -1,9 +1,8 @@
 name: Release Chart
 
 # A chart release, every step of it a job of yggdrasil's release module: it
-# reads the version from the squash commit's title (GitVersion, the module's
-# default patterns), makes the git tag and GitHub release, and pushes the
-# chart under that version with signed provenance. Decision record 0001.
+# reads the version from the squash commit's title, makes the git tag and
+# GitHub release, and pushes the chart under that version with signed provenance. Decision record 0001.
 on:
   push:
     branches:

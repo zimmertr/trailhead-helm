@@ -2,7 +2,7 @@ apiVersion: v2
 name: trailhead-helm
 description: TJ Zimmerman's personal site as a 3D world. Four small services (web, api, admin and the fetcher) and a PostgreSQL database, on Argo Rollouts, Istio and CloudNativePG.
 type: application
-# version is overwritten at package time by CI (GitVersion). Kept here for local `helm template`.
+# version is overwritten at package time by the release. Kept here for local `helm template`.
 version: 0.1.0
 # appVersion is the default tag of all four trailhead images when none is
 # supplied. Must be a published ghcr.io/zimmertr/trailhead-* tag, or a default
