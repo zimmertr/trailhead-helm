@@ -19,7 +19,7 @@ When a change here makes a decision, write its record in [`docs/architectural-de
 File issues with the `create-issue` skill from zimmertr/ai-config. The skill reads the four things below from this section.
 
 - **The reader**: someone who installs the chart and knows Helm and Kubernetes, but not trailhead's code.
-- **The gates**: `Chart / Chart`, `PR Title / PR Title` and the three `Lint /` checks pass; `charts/trailhead/README.md` changes with any value; the README changes only to stay accurate.
+- **The gates**: `Chart / Chart`, `PR Title / PR Title` and the five `Lint /` checks pass; `charts/trailhead/README.md` changes with any value; the README changes only to stay accurate.
 - **The constraints**: no secret values, real hostnames or addresses in the repo or in logs; a release must not break the stable app or the PR previews; the chart stays GPLv3.
 - **The areas**: `chart` (the templates and values), `ci` (the workflows and Renovate), `security`.
 
